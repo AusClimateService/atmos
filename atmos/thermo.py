@@ -1377,13 +1377,12 @@ def follow_moist_adiabat(pi, pf, Ti, qt=None, phase='liquid', pseudo=True,
 def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
                                 explicit=False, dp=500.0):
     """
-    Computes pseudo wet-bulb temperature using procedure outlined in section 7
-    of Warren (2025).
+    Computes pseudo (a.k.a. adiabatic) wet-bulb temperature using method
+    outlined in section 7 of Warren (2025).
 
     Pseudo wet-bulb temperature is the temperature of a parcel of air lifted
     adiabatically to saturation and then brought pseudoadiabatically at
-    saturation back to its original pressure. It is always less than the
-    isobaric wet-bulb temperature.
+    saturation back to its original pressure.
 
     See https://glossary.ametsoc.org/wiki/Wet-bulb_temperature.
 
@@ -1449,9 +1448,10 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
     return Tw
 
 
-def isobaric_wet_bulb_temperature(p, T, q, phase='liquid'):
+def isobaric_wet_bulb_temperature_warren(p, T, q, phase='liquid'):
     """
-    Computes isobaric wet-bulb temperature using equations from Warren (2025).
+    Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using
+    equations from Warren (2025).
 
     Isobaric wet-bulb temperature is the temperature of a parcel of air cooled
     isobarically to saturation via the evaporation of water into it, with all
@@ -1583,12 +1583,11 @@ def isobaric_wet_bulb_temperature(p, T, q, phase='liquid'):
 
 def isobaric_wet_bulb_temperature_romps(p, T, q, phase='liquid'):
     """
-    Computes isobaric wet-bulb temperature using method from Romps (2026),
-    which has been implemented in the heatindex Python library
-    (https://github.com/davidromps/heatindex).
+    Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using
+    method from Romps (2026).
 
-    A corrigendum to Warren (2025) will be published in the near future
-    containing derivations for the equations implemented in this function.
+    A comment paper on Romps (2026) is being prepared, which will present
+    derivations for the equations implemented in this function.
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -1705,21 +1704,23 @@ def isobaric_wet_bulb_temperature_romps(p, T, q, phase='liquid'):
     return Tw
 
 
-def wet_bulb_temperature(p, T, q, saturation='pseudo',
-                         isobaric_method='Warren', phase='liquid',
+def wet_bulb_temperature(p, T, q, wet_bulb_variant=None,
+                         isobaric_method='Romps', phase='liquid',
                          polynomial=True, explicit=False, dp=500.0):
     """
-    Computes wet-bulb temperature for specified saturation process.
+    Computes wet-bulb temperature (isobaric or pseudo).
 
     Args:
         p (float or ndarray): pressure (Pa)
         T (float or ndarray): temperature (K)
         q (float or ndarray): specific humidity (kg/kg)
-        saturation (str, optional): saturation process (valid options are
-            'pseudo' or 'isobaric'; default is 'pseudo')
+        wet_bulb_variant (str, optional): variant of wet-bulb temperature to
+            calculate (valid options are 'isobaric' or 'pseudo'; default is
+            None in which case isobaric wet-bulb temperature is calculated
+            but with a warning message)
         isobaric_method (str, optional): method used to calculate isobaric
             wet-bulb temperature (valid options are 'Warren' or 'Romps';
-            default is 'Warren')
+            default is 'Romps')
         phase (str, optional): condensed water phase (valid options are
             'liquid', 'ice', or 'mixed'; default is 'liquid')
         polynomial (bool, optional): flag indicating whether to use polynomial
@@ -1734,19 +1735,33 @@ def wet_bulb_temperature(p, T, q, saturation='pseudo',
 
     """
 
-    if saturation == 'pseudo':
+    if wet_bulb_variant is None:
+        warnings.warn(
+            '''
+            By default this function calculates isobaric wet-bulb temperature using
+            the method of Romps (2026). The method of Warren (2025) can alternatively
+            be used by setting isobaric_method="Warren". Pseudo wet-bulb temperature
+            can be obtained by setting wet_bulb_variant="pseudo".
+            
+            To suppress this warning message, please specify wet_bulb_variant as
+            either "isobaric" or "pseudo".
+            '''
+        )
+        wet_bulb_variant = 'isobaric'
+
+    if wet_bulb_variant == 'isobaric':
+        if isobaric_method == 'Romps':
+            Tw = isobaric_wet_bulb_temperature_romps(p, T, q, phase=phase)
+        elif isobaric_method == 'Warren':
+            Tw = isobaric_wet_bulb_temperature_warren(p, T, q, phase=phase)
+        else:
+           raise ValueError(
+            "isobaric_method must be either 'Warren' or 'Romps'"
+           )
+    elif wet_bulb_variant == 'pseudo':
         Tw = pseudo_wet_bulb_temperature(p, T, q, phase=phase,
                                          polynomial=polynomial,
                                          explicit=explicit, dp=dp)
-    elif saturation == 'isobaric':
-        if isobaric_method == 'Warren':
-            Tw = isobaric_wet_bulb_temperature(p, T, q, phase=phase)
-        elif isobaric_method == 'Romps':
-            Tw = isobaric_wet_bulb_temperature_romps(p, T, q, phase=phase)
-        else:
-           raise ValueError(
-            "isobaric_method must be one of 'Warren' or 'Romps'"
-           )
     else:
         raise ValueError("saturation must be one of 'pseudo' or 'isobaric'")
 
