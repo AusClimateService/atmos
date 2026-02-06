@@ -563,8 +563,9 @@ def _dewpoint_temperature_from_relative_humidity(T, RH):
 
     # Compute dewpoint temperature using Lambert W function
     # (Eq. 38 and 40 from Warren 2025; cf. Eq. 5-6 from Romps 2021)
-    alpha = (Lv0 - (cpv - cpl) * T0) / (cpv - cpl)
-    fn = np.power(RH, (Rv / (cpl - cpv))) * (alpha / T) * np.exp(alpha / T)
+    beta = (cpl - cpv) / Rv
+    alpha = -(1 / beta) * (Lv0 + (cpl - cpv) * T0) / Rv
+    fn = np.power(RH, (1 / beta)) * (alpha / T) * np.exp(alpha / T)
     #W = lambertw(fn, k=-1).real
     W = _lambertw(fn)
     Td = alpha / W
@@ -612,8 +613,9 @@ def _frost_point_temperature_from_relative_humidity(T, RH):
 
     # Compute frost-point temperature using Lambert W function
     # (Eq. 39 and 41 from Warren 2025; cf. Eq. 7-8 from Romps 2021)
-    alpha = (Ls0 - (cpv - cpi) * T0) / (cpv - cpi)
-    fn = np.power(RH, (Rv / (cpi - cpv))) * (alpha / T) * np.exp(alpha / T)
+    beta = (cpi - cpv) / Rv
+    alpha = -(1 / beta) * (Ls0 + (cpi - cpv) * T0) / Rv
+    fn = np.power(RH, (1 / beta)) * (alpha / T) * np.exp(alpha / T)
     #W = lambertw(fn, k=-1).real  # -1 branch because cpi > cpv
     W = _lambertw(fn)
     Tf = alpha / W
@@ -670,8 +672,9 @@ def _saturation_point_temperature_from_relative_humidity(T, RH, omega):
 
     # Compute saturation-point temperature
     # (Eq. 42-43 from Warren 2025)
-    alpha = (Lx0 - (cpv - cpx) * T0) / (cpv - cpx)
-    fn = np.power(RH, (Rv / (cpx - cpv))) * (alpha / T) * np.exp(alpha / T)
+    beta = (cpx - cpv) / Rv
+    alpha = -(1 / beta) * (Lx0 + (cpx - cpv) * T0) / Rv
+    fn = np.power(RH, (1/ beta)) * (alpha / T) * np.exp(alpha / T)
     #W = lambertw(fn, k=-1).real
     W = _lambertw(fn)
     Ts = alpha / W
