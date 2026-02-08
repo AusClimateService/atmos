@@ -1377,8 +1377,7 @@ def follow_moist_adiabat(pi, pf, Ti, qt=None, phase='liquid', pseudo=True,
     return Tf
 
 
-def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
-                                explicit=False, dp=500.0):
+def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', method='NEWT'):
     """
     Computes pseudo (a.k.a. adiabatic) wet-bulb temperature using method
     outlined in section 7 of Warren (2025).
@@ -1387,25 +1386,26 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
     adiabatically to saturation and then brought pseudoadiabatically at
     saturation back to its original pressure.
 
-    See https://glossary.ametsoc.org/wiki/Wet-bulb_temperature.
-
     Args:
         p (float or ndarray): pressure (Pa)
         T (float or ndarray): temperature (K)
         q (float or ndarray): specific humidity (kg/kg)
         phase (str, optional): condensed water phase (valid options are
             'liquid', 'ice', or 'mixed'; default is 'liquid')
-        polynomial (bool, optional): flag indicating whether to use polynomial
-            fits to pseudoadiabats (default is True)
-        explicit (bool, optional): flag indicating whether to use explicit
-            integration of lapse rate equation (default is False)
-        dp (float, optional): pressure increment for integration of lapse rate
-            equation (default is 500 Pa = 5 hPa)
+        method (str, optional): method used to perform calculation (valid
+            options are 'iterative' or 'NEWT'; default is 'NEWT')
 
     Returns:
         Tw (float or ndarray): pseudo wet-bulb temperature (K)
 
     """
+
+    if method == 'iterative':
+        polynomial = False
+    elif method == 'NEWT':
+        polynomial = True
+    else:
+        raise ValueError("method must be either 'iterative' or 'NEWT'")
 
     if phase == 'liquid':
 
@@ -1414,8 +1414,7 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
 
         # Follow a pseudoadiabat from the LCL to the original pressure
         Tw = follow_moist_adiabat(p_lcl, p, T_lcl, phase='liquid', pseudo=True,
-                                  polynomial=polynomial, explicit=explicit,
-                                  dp=dp)
+                                  polynomial=polynomial)
 
     elif phase == 'ice':
 
@@ -1424,8 +1423,7 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
 
         # Follow a pseudoadiabat from the LDL to the original pressure
         Tw = follow_moist_adiabat(p_ldl, p, T_ldl, phase='ice', pseudo=True,
-                                  polynomial=polynomial, explicit=explicit,
-                                  dp=dp)
+                                  polynomial=polynomial)
 
     elif phase == 'mixed':
 
@@ -1434,8 +1432,7 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
 
         # Follow a pseudoadiabat from the LSL to the original pressure
         Tw = follow_moist_adiabat(p_lsl, p, T_lsl, phase='mixed', pseudo=True,
-                                  polynomial=polynomial, explicit=explicit,
-                                  dp=dp)
+                                  polynomial=polynomial)
 
     else:
 
@@ -1451,18 +1448,15 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', polynomial=True,
     return Tw
 
 
-def isobaric_wet_bulb_temperature_warren(p, T, q, phase='liquid'):
+def isobaric_wet_bulb_temperature(p, T, q, phase='liquid', method='Romps'):
     """
     Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using
-    equations from Warren (2025).
+    equations from Warren (2025) or Romps (2026).
 
     Isobaric wet-bulb temperature is the temperature of a parcel of air cooled
     isobarically to saturation via the evaporation of water into it, with all
-    latent heat supplied by the parcel. It is always greater than the pseudo
-    wet-bulb temperature. Isobaric wet-bulb temperature is similar (but not
-    identical) to the quantity measured by a wet-bulb thermometer. 
-
-    See https://glossary.ametsoc.org/wiki/Wet-bulb_temperature.
+    latent heat supplied by the parcel. It is similar (but not identical) to
+    the quantity measured by a wet-bulb thermometer.
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -1470,6 +1464,8 @@ def isobaric_wet_bulb_temperature_warren(p, T, q, phase='liquid'):
         q (float or ndarray): specific humidity (kg/kg)
         phase (str, optional): condensed water phase (valid options are
             'liquid', 'ice', or 'mixed'; default is 'liquid')
+        method (str, optional): method used to perform calculation (valid
+            options are 'Warren' or 'Romps'; default is 'Romps')
 
     Returns:
         Tw (float or ndarray): isobaric wet-bulb temperature (K)
@@ -1482,234 +1478,225 @@ def isobaric_wet_bulb_temperature_warren(p, T, q, phase='liquid'):
     # Initialise Tw using the "one-third rule" (Knox et al. 2017)
     Tw = T - (1 / 3) * (T - Td)
 
-    # Compute the latent heat at temperature T
-    if phase == 'liquid':
-        Lv_T = latent_heat_of_vaporisation(T)
-    elif phase == 'ice':
-        Ls_T = latent_heat_of_sublimation(T)
-    elif phase == 'mixed':
-        omega_T = ice_fraction(T)
-        Lx_T = mixed_phase_latent_heat(T, omega_T)
+    if method == 'Warren':
+
+        # Compute the latent heat at temperature T
+        if phase == 'liquid':
+            Lv_T = latent_heat_of_vaporisation(T)
+        elif phase == 'ice':
+            Ls_T = latent_heat_of_sublimation(T)
+        elif phase == 'mixed':
+            omega_T = ice_fraction(T)
+            Lx_T = mixed_phase_latent_heat(T, omega_T)
+        else:
+            raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
+
+        # Iterate to convergence
+        converged = False
+        count = 0
+        while not converged:
+
+            # Update the previous Tw value
+            Tw_prev = Tw
+
+            # Compute the ice fraction at Tw
+            if phase == 'liquid':
+                omega_Tw = 0.0
+            elif phase == 'ice':
+                omega_Tw = 1.0
+            elif phase == 'mixed':
+                omega_Tw = ice_fraction(Tw)
+
+            # Compute saturation specific humidity at Tw
+            qs_Tw = saturation_specific_humidity(p, Tw, phase=phase,
+                                                omega=omega_Tw)
+
+            # Compute the effective specific heat at qs(Tw)
+            cpm_qs_Tw = effective_specific_heat(qs_Tw)
+
+            if phase == 'liquid':
+
+                # Compute the latent heat of vaporisation at Tw
+                Lv_Tw = latent_heat_of_vaporisation(Tw)
+
+                # Compute the derivative of qs with respect to Tw
+                # (Eq. 83 from Warren 2025, with omega = 0, so that Lx = Lv and
+                # domega_dT = 0)
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
+                    Lv_Tw / (Rv * Tw**2)
+
+                # Compute f(Tw) and f'(Tw)
+                # (Eq. 81 and 82 from Warren 2025, with omega = 0, so that
+                # Lx = Lv)
+                f = cpm_qs_Tw * (T - Tw) - Lv_T * (qs_Tw - q)
+                fprime = ((cpv - cpd) * (T - Tw) - Lv_T) * dqs_dTw - cpm_qs_Tw
+
+            elif phase == 'ice':
+
+                # Compute the latent heat of sublimation at Tw
+                Ls_Tw = latent_heat_of_sublimation(Tw)
+
+                # Compute the derivative of qs with respect to Tw
+                # (Eq. 83 from Warren 2025, with omega = 1, so that Lx = Ls and
+                # domega_dT = 0)
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
+                    Ls_Tw / (Rv * Tw**2)
+
+                # Compute f(Tw) and f'(Tw)
+                # (Eq. 81 and 82 from Warren 2025, with omega = 1, so that
+                # Lx = Ls)
+                f = cpm_qs_Tw * (T - Tw) - Ls_T * (qs_Tw - q)
+                fprime = ((cpv - cpd) * (T - Tw) - Ls_T) * dqs_dTw - cpm_qs_Tw
+
+            elif phase == 'mixed':
+
+                # Compute the derivative of omega with respect to Tw
+                domega_dTw = ice_fraction_derivative(Tw)
+
+                # Compute the mixed-phase latent heat at Tw
+                Lx_Tw = mixed_phase_latent_heat(Tw, omega_Tw)
+
+                # Compute the saturation vapour pressues over liquid and ice
+                # at Tw
+                esl_Tw = saturation_vapour_pressure(Tw, phase='liquid')
+                esi_Tw = saturation_vapour_pressure(Tw, phase='ice')
+
+                # Compute the derivative of qs with respect to Tw
+                # (Eq. 83 from Warren 2025)
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * (
+                    Lx_Tw / (Rv * Tw**2) +
+                    np.log(esi_Tw / esl_Tw) * domega_dTw
+                )
+
+                # Compute f(Tw) and f'(Tw)
+                # (Eq. 81 and 82 from Warren 2025)
+                f = cpm_qs_Tw * (T - Tw) - Lx_T * (qs_Tw - q)
+                fprime = ((cpv - cpd) * (T - Tw) - Lx_T) * dqs_dTw - cpm_qs_Tw
+
+            # Update Tw using Newton's method
+            # (Eq. 84 from Warren 2025)
+            Tw = Tw - f / fprime
+
+            # Check for convergence
+            if np.nanmax(np.abs(Tw - Tw_prev)) < precision:
+                converged = True
+            else:
+                count += 1
+                if count == max_n_iter:
+                    print(f"Tw not converged after {max_n_iter} iterations")
+                    break
+
+    elif method == 'Romps':
+
+        # Compute the effective specific heat
+        cpm = effective_specific_heat(q)
+
+        # Iterate to convergence
+        converged = False
+        count = 0
+        while not converged:
+
+            # Update the previous Tw value
+            Tw_prev = Tw
+
+            # Compute the ice fraction at Tw
+            if phase == 'liquid':
+                omega_Tw = 0.0
+            elif phase == 'ice':
+                omega_Tw = 1.0
+            elif phase == 'mixed':
+                omega_Tw = ice_fraction(Tw)
+
+            # Compute saturation specific humidity at Tw
+            qs_Tw = saturation_specific_humidity(p, Tw, phase=phase,
+                                                omega=omega_Tw)
+
+            if phase == 'liquid':
+
+                # Compute the latent heat of vaporisation at Tw
+                Lv_Tw = latent_heat_of_vaporisation(Tw)
+
+                # Compute the derivative of qs with respect to Tw
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
+                    Lv_Tw / (Rv * Tw**2)
+
+                # Compute the derivative of Lv with respect to Tw
+                dLv_dTw = (cpv - cpl)
+
+                # Compute f(Tw) and f'(Tw)
+                f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Lv_Tw
+                fprime = -(cpm * (T - Tw) + Lv_Tw) * dqs_dTw - \
+                    cpm * (1 - qs_Tw) - (qs_Tw - q) * dLv_dTw
+
+            elif phase == 'ice':
+
+                # Compute the latent heat of sublimation at Tw
+                Ls_Tw = latent_heat_of_sublimation(Tw)
+
+                # Compute the derivative of qs with respect to Tw
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
+                    Ls_Tw / (Rv * Tw**2)
+
+                # Compute the derivative of Ls with respect to Tw
+                dLs_dTw = (cpv - cpi)
+
+                # Compute f(Tw) and f'(Tw)
+                f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Ls_Tw
+                fprime = -(cpm * (T - Tw) + Ls_Tw) * dqs_dTw - \
+                    cpm * (1 - qs_Tw) - (qs_Tw - q) * dLs_dTw
+
+            elif phase == 'mixed':
+
+                # Compute the derivative of omega with respect to Tw
+                domega_dTw = ice_fraction_derivative(Tw)
+
+                # Compute the mixed-phase latent heat at Tw
+                Lx_Tw = mixed_phase_latent_heat(Tw, omega_Tw)
+
+                # Compute the mixed-phase isobaric specific heat
+                cpx = (1 - omega_Tw) * cpl + omega_Tw * cpi
+
+                # Compute the derivate of Lx with respect to Tw
+                dLx_dTw = (cpv - cpx) + (Tw - T0) * (cpl - cpi) * domega_dTw
+
+                # Compute the saturation vapour pressues over liquid and ice at Tw
+                esl_Tw = saturation_vapour_pressure(Tw, phase='liquid')
+                esi_Tw = saturation_vapour_pressure(Tw, phase='ice')
+
+                # Compute the derivative of qs with respect to Tw
+                dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * (
+                    Lx_Tw / (Rv * Tw**2) +
+                    np.log(esi_Tw / esl_Tw) * domega_dTw
+                )
+
+                # Compute f(Tw) and f'(Tw)
+                f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Lx_Tw
+                fprime = -(cpm * (T - Tw) + Lx_Tw) * dqs_dTw - \
+                    cpm * (1 - qs_Tw) - (qs_Tw - q) * dLx_dTw
+
+            # Update Tw using Newton's method
+            Tw = Tw - f / fprime
+
+            # Check for convergence
+            if np.nanmax(np.abs(Tw - Tw_prev)) < precision:
+                converged = True
+            else:
+                count += 1
+                if count == max_n_iter:
+                    print(f"Tw not converged after {max_n_iter} iterations")
+                    break
+
     else:
-        raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
 
-    # Iterate to convergence
-    converged = False
-    count = 0
-    while not converged:
-
-        # Update the previous Tw value
-        Tw_prev = Tw
-
-        # Compute the ice fraction at Tw
-        if phase == 'liquid':
-            omega_Tw = 0.0
-        elif phase == 'ice':
-            omega_Tw = 1.0
-        elif phase == 'mixed':
-            omega_Tw = ice_fraction(Tw)
-
-        # Compute saturation specific humidity at Tw
-        qs_Tw = saturation_specific_humidity(p, Tw, phase=phase,
-                                             omega=omega_Tw)
-
-        # Compute the effective specific heat at qs(Tw)
-        cpm_qs_Tw = effective_specific_heat(qs_Tw)
-
-        if phase == 'liquid':
-
-            # Compute the latent heat of vaporisation at Tw
-            Lv_Tw = latent_heat_of_vaporisation(Tw)
-
-            # Compute the derivative of qs with respect to Tw
-            # (Eq. 83 from Warren 2025, with omega = 0, so that Lx = Lv and
-            # domega_dT = 0)
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * Lv_Tw / (Rv * Tw**2)
-
-            # Compute f(Tw) and f'(Tw)
-            # (Eq. 81 and 82 from Warren 2025, with omega = 0, so that Lx = Lv)
-            f = cpm_qs_Tw * (T - Tw) - Lv_T * (qs_Tw - q)
-            fprime = ((cpv - cpd) * (T - Tw) - Lv_T) * dqs_dTw - cpm_qs_Tw
-
-        elif phase == 'ice':
-
-            # Compute the latent heat of sublimation at Tw
-            Ls_Tw = latent_heat_of_sublimation(Tw)
-
-            # Compute the derivative of qs with respect to Tw
-            # (Eq. 83 from Warren 2025, with omega = 1, so that Lx = Ls and
-            # domega_dT = 0)
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * Ls_Tw / (Rv * Tw**2)
-
-            # Compute f(Tw) and f'(Tw)
-            # (Eq. 81 and 82 from Warren 2025, with omega = 1, so that Lx = Ls)
-            f = cpm_qs_Tw * (T - Tw) - Ls_T * (qs_Tw - q)
-            fprime = ((cpv - cpd) * (T - Tw) - Ls_T) * dqs_dTw - cpm_qs_Tw
-
-        elif phase == 'mixed':
-
-            # Compute the derivative of omega with respect to Tw
-            domega_dTw = ice_fraction_derivative(Tw)
-
-            # Compute the mixed-phase latent heat at Tw
-            Lx_Tw = mixed_phase_latent_heat(Tw, omega_Tw)
-
-            # Compute the saturation vapour pressues over liquid and ice at Tw
-            esl_Tw = saturation_vapour_pressure(Tw, phase='liquid')
-            esi_Tw = saturation_vapour_pressure(Tw, phase='ice')
-
-            # Compute the derivative of qs with respect to Tw
-            # (Eq. 83 from Warren 2025)
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
-                (Lx_Tw / (Rv * Tw**2) + np.log(esi_Tw / esl_Tw) * domega_dTw)
-
-            # Compute f(Tw) and f'(Tw)
-            # (Eq. 81 and 82 from Warren 2025)
-            f = cpm_qs_Tw * (T - Tw) - Lx_T * (qs_Tw - q)
-            fprime = ((cpv - cpd) * (T - Tw) - Lx_T) * dqs_dTw - cpm_qs_Tw
-       
-        # Update Tw using Newton's method
-        # (Eq. 84 from Warren 2025)
-        Tw = Tw - f / fprime
-
-        # Check for convergence
-        if np.nanmax(np.abs(Tw - Tw_prev)) < precision:
-            converged = True
-        else:
-            count += 1
-            if count == max_n_iter:
-                print(f"Tw not converged after {max_n_iter} iterations")
-                break
+        raise ValueError(
+            "isobaric_method must be either 'Warren' or 'Romps'"
+           )
 
     return Tw
 
 
-def isobaric_wet_bulb_temperature_romps(p, T, q, phase='liquid'):
-    """
-    Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using
-    method from Romps (2026).
-
-    A comment paper on Romps (2026) is being prepared, which will present
-    derivations for the equations implemented in this function.
-
-    Args:
-        p (float or ndarray): pressure (Pa)
-        T (float or ndarray): temperature (K)
-        q (float or ndarray): specific humidity (kg/kg)
-        phase (str, optional): condensed water phase (valid options are
-            'liquid', 'ice', or 'mixed'; default is 'liquid')
-
-    Returns:
-        Tw (float or ndarray): isobaric wet-bulb temperature (K)
-
-    """
-
-    # Compute dewpoint temperature
-    Td = dewpoint_temperature(p, T, q)
-
-    # Initialise Tw using the "one-third rule" (Knox et al. 2017)
-    Tw = T - (1 / 3) * (T - Td)
-
-    # Compute the effective specific heat
-    cpm = effective_specific_heat(q)
-
-    # Iterate to convergence
-    converged = False
-    count = 0
-    while not converged:
-
-        # Update the previous Tw value
-        Tw_prev = Tw
-
-        # Compute the ice fraction at Tw
-        if phase == 'liquid':
-            omega_Tw = 0.0
-        elif phase == 'ice':
-            omega_Tw = 1.0
-        elif phase == 'mixed':
-            omega_Tw = ice_fraction(Tw)
-
-        # Compute saturation specific humidity at Tw
-        qs_Tw = saturation_specific_humidity(p, Tw, phase=phase,
-                                             omega=omega_Tw)
-
-        if phase == 'liquid':
-
-            # Compute the latent heat of vaporisation at Tw
-            Lv_Tw = latent_heat_of_vaporisation(Tw)
-
-            # Compute the derivative of qs with respect to Tw
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * Lv_Tw / (Rv * Tw**2)
-
-            # Compute the derivative of Lv with respect to Tw
-            dLv_dTw = (cpv - cpl)
-
-            # Compute f(Tw) and f'(Tw)
-            f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Lv_Tw
-            fprime = -(cpm * (T - Tw) + Lv_Tw) * dqs_dTw - \
-                cpm * (1 - qs_Tw) - (qs_Tw - q) * dLv_dTw
-
-        elif phase == 'ice':
-
-            # Compute the latent heat of sublimation at Tw
-            Ls_Tw = latent_heat_of_sublimation(Tw)
-
-            # Compute the derivative of qs with respect to Tw
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * Ls_Tw / (Rv * Tw**2)
-
-            # Compute the derivative of Ls with respect to Tw
-            dLs_dTw = (cpv - cpi)
-
-            # Compute f(Tw) and f'(Tw)
-            f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Ls_Tw
-            fprime = -(cpm * (T - Tw) + Ls_Tw) * dqs_dTw - \
-                cpm * (1 - qs_Tw) - (qs_Tw - q) * dLs_dTw
-
-        elif phase == 'mixed':
-
-            # Compute the derivative of omega with respect to Tw
-            domega_dTw = ice_fraction_derivative(Tw)
-
-            # Compute the mixed-phase latent heat at Tw
-            Lx_Tw = mixed_phase_latent_heat(Tw, omega_Tw)
-
-            # Compute the mixed-phase isobaric specific heat
-            cpx = (1 - omega_Tw) * cpl + omega_Tw * cpi
-
-            # Compute the derivate of Lx with respect to Tw
-            dLx_dTw = (cpv - cpx) + (Tw - T0) * (cpl - cpi) * domega_dTw
-
-            # Compute the saturation vapour pressues over liquid and ice at Tw
-            esl_Tw = saturation_vapour_pressure(Tw, phase='liquid')
-            esi_Tw = saturation_vapour_pressure(Tw, phase='ice')
-
-            # Compute the derivative of qs with respect to Tw
-            dqs_dTw = qs_Tw * (1 - qs_Tw + qs_Tw / eps) * \
-                (Lx_Tw / (Rv * Tw**2) + np.log(esi_Tw / esl_Tw) * domega_dTw)
-
-            # Compute f(Tw) and f'(Tw)
-            f = cpm * (T - Tw) * (1 - qs_Tw) - (qs_Tw - q) * Lx_Tw
-            fprime = -(cpm * (T - Tw) + Lx_Tw) * dqs_dTw - \
-                cpm * (1 - qs_Tw) - (qs_Tw - q) * dLx_dTw
-       
-        # Update Tw using Newton's method
-        Tw = Tw - f / fprime
-
-        # Check for convergence
-        if np.nanmax(np.abs(Tw - Tw_prev)) < precision:
-            converged = True
-        else:
-            count += 1
-            if count == max_n_iter:
-                print(f"Tw not converged after {max_n_iter} iterations")
-                break
-
-    return Tw
-
-
-def wet_bulb_temperature(p, T, q, wet_bulb_variant=None,
-                         isobaric_method='Romps', phase='liquid',
-                         polynomial=True, explicit=False, dp=500.0):
+def wet_bulb_temperature(p, T, q, phase='liquid', variant='isobaric',
+                         isobaric_method='Romps', pseudo_method='NEWT'):
     """
     Computes wet-bulb temperature (isobaric or pseudo).
 
@@ -1717,56 +1704,30 @@ def wet_bulb_temperature(p, T, q, wet_bulb_variant=None,
         p (float or ndarray): pressure (Pa)
         T (float or ndarray): temperature (K)
         q (float or ndarray): specific humidity (kg/kg)
-        wet_bulb_variant (str, optional): variant of wet-bulb temperature to
-            calculate (valid options are 'isobaric' or 'pseudo'; default is
-            None in which case isobaric wet-bulb temperature is calculated
-            but with a warning message)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        variant (str, optional): variant of wet-bulb temperature to calculate
+            (valid options are 'isobaric' or 'pseudo'; default is 'isobaric')
         isobaric_method (str, optional): method used to calculate isobaric
             wet-bulb temperature (valid options are 'Warren' or 'Romps';
             default is 'Romps')
-        phase (str, optional): condensed water phase (valid options are
-            'liquid', 'ice', or 'mixed'; default is 'liquid')
-        polynomial (bool, optional): flag indicating whether to use polynomial
-            fits to pseudoadiabats (default is True)
-        explicit (bool, optional): flag indicating whether to use explicit
-            integration of lapse rate equation (default is False)
-        dp (float, optional): pressure increment for integration of lapse rate
-            equation (default is 500 Pa = 5 hPa)
+        pseudo_method (str, optional): method used to calculate pseudo
+            wet-bulb temperature (valid options are 'iterative' or 'NEWT';
+            default is 'NEWT')
 
     Returns:
         Tw: wet-bulb temperature (K)
 
     """
 
-    if wet_bulb_variant is None:
-        warnings.warn(
-            '''
-            By default this function calculates isobaric wet-bulb temperature using
-            the method of Romps (2026). The method of Warren (2025) can alternatively
-            be used by setting isobaric_method="Warren". Pseudo wet-bulb temperature
-            can be obtained by setting wet_bulb_variant="pseudo".
-            
-            To suppress this warning message, please specify wet_bulb_variant as
-            either "isobaric" or "pseudo".
-            '''
-        )
-        wet_bulb_variant = 'isobaric'
-
-    if wet_bulb_variant == 'isobaric':
-        if isobaric_method == 'Romps':
-            Tw = isobaric_wet_bulb_temperature_romps(p, T, q, phase=phase)
-        elif isobaric_method == 'Warren':
-            Tw = isobaric_wet_bulb_temperature_warren(p, T, q, phase=phase)
-        else:
-           raise ValueError(
-            "isobaric_method must be either 'Warren' or 'Romps'"
-           )
-    elif wet_bulb_variant == 'pseudo':
+    if variant == 'isobaric':
+        Tw = isobaric_wet_bulb_temperature(p, T, q, phase=phase,
+                                           method=isobaric_method)
+    elif variant == 'pseudo':
         Tw = pseudo_wet_bulb_temperature(p, T, q, phase=phase,
-                                         polynomial=polynomial,
-                                         explicit=explicit, dp=dp)
+                                         method=pseudo_method)
     else:
-        raise ValueError("saturation must be one of 'pseudo' or 'isobaric'")
+        raise ValueError("variant must be either of 'isobaric' or 'pseudo'")
 
     return Tw
 
