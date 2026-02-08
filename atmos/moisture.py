@@ -11,8 +11,11 @@ Functions for converting between the following moisture variables:
 """
 
 import numpy as np
-from atmos.constant import eps
+from atmos.constant import eps, cpd, cpv
 from atmos.thermo import precision, max_n_iter
+from atmos.thermo import latent_heat_of_vaporisation
+from atmos.thermo import latent_heat_of_sublimation
+from atmos.thermo import mixed_phase_latent_heat
 from atmos.thermo import saturation_vapour_pressure
 from atmos.thermo import saturation_specific_humidity
 from atmos.thermo import saturation_mixing_ratio
@@ -34,6 +37,8 @@ from atmos.thermo import frost_point_temperature as \
 from atmos.thermo import _saturation_point_temperature_from_relative_humidity
 from atmos.thermo import saturation_point_temperature as \
     saturation_point_temperature_from_specific_humidity
+from atmos.thermo import wet_bulb_temperature as \
+    wet_bulb_temperature_from_specific_humidity
 
 
 def specific_humidity_from_mixing_ratio(r):
@@ -148,6 +153,31 @@ def specific_humidity_from_saturation_point_temperature(p, Ts, omega):
     return q
 
 
+def specific_humidity_from_wet_bulb_temperature(p, T, Tw, phase='liquid',
+                                                omega=0.0):
+    """
+    Computes specific humidity from pressure and wet-bulb temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        omega (float or ndarray, optional): ice fraction at saturation
+            (default is 0.0)
+
+    Returns:
+        q (float or ndarray): specific humidity (kg/kg)
+
+    """
+    e = vapour_pressure_from_wet_bulb_temperature(p, T, Tw, phase=phase,
+                                                  omega=omega)
+    q = specific_humidity_from_vapour_pressure(p, e)
+
+    return q
+
+
 def mixing_ratio_from_vapour_pressure(p, e):
     """
     Computes mixing ratio from pressure and vapour pressure.
@@ -243,6 +273,31 @@ def mixing_ratio_from_saturation_point_temperature(p, Ts, omega):
     return r
 
 
+def mixing_ratio_from_wet_bulb_temperature(p, T, Tw, phase='liquid',
+                                           omega=0.0):
+    """
+    Computes mixing ratio from pressure and wet-bulb temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        omega (float or ndarray, optional): ice fraction at saturation
+            (default is 0.0)
+
+    Returns:
+        r (float or ndarray): mixing ratio (kg/kg)
+
+    """
+    e = vapour_pressure_from_wet_bulb_temperature(p, T, Tw, phase=phase,
+                                                  omega=omega)
+    r = mixing_ratio_from_vapour_pressure(p, e)
+
+    return r
+
+
 def vapour_pressure_from_mixing_ratio(p, r):
     """
     Computes vapour pressure from pressure and mixing ratio.
@@ -329,6 +384,59 @@ def vapour_pressure_from_saturation_point_temperature(Ts, omega):
 
     """
     e = saturation_vapour_pressure(Ts, phase='mixed', omega=omega)
+
+    return e
+
+
+def vapour_pressure_from_wet_bulb_temperature(p, T, Tw, phase='liquid',
+                                              omega=0.0):
+    """
+    Computes vapour pressure from pressure, temperature, and wet-bulb
+    temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        omega (float or ndarray, optional): ice fraction at saturation
+            (default is 0.0)
+
+    Returns:
+        e (float or ndarray): vapour pressure (Pa)
+
+    """
+
+    # Compute saturation vapour pressure at Tw
+    es_Tw = saturation_vapour_pressure(Tw, phase=phase, omega=omega)
+
+    if phase == 'liquid':
+
+        # Compute latent heat of vaporisation at Tw
+        Lv_Tw = latent_heat_of_vaporisation(Tw)
+
+        # Compute vapour pressure
+        e = p * (eps * Lv_Tw * es_Tw - cpd * (T - Tw) * (p - es_Tw)) / \
+            (eps * Lv_Tw * p + (eps * cpv - cpd) * (T - Tw) * (p - es_Tw))
+
+    if phase == 'ice':
+
+        # Compute latent heat of sublimation at Tw
+        Ls_Tw = latent_heat_of_sublimation(Tw)
+
+        # Compute vapour pressure
+        e = p * (eps * Ls_Tw * es_Tw - cpd * (T - Tw) * (p - es_Tw)) / \
+            (eps * Ls_Tw * p + (eps * cpv - cpd) * (T - Tw) * (p - es_Tw))
+
+    else:
+
+        # Compute mixed-phase latent heat at Tw
+        Lx_Tw = mixed_phase_latent_heat(Tw, omega)
+
+        # Compute vapour pressure
+        e = p * (eps * Lx_Tw * es_Tw - cpd * (T - Tw) * (p - es_Tw)) / \
+            (eps * Lx_Tw * p + (eps * cpv - cpd) * (T - Tw) * (p - es_Tw))
 
     return e
     
@@ -437,6 +545,31 @@ def relative_humidity_from_saturation_point_temperature(T, Ts, omega):
     RH = e / es
 
     return RH
+
+
+def relative_humidity_from_wet_bulb_temperature(p, T, Tw, phase='liquid',
+                                                omega=0.0):
+    """
+    Computes relative humidity from pressure, temperature, and wet-bulb
+    temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+        phase (optional): condensed water phase ('liquid', 'ice', or 'mixed')
+        omega (float or ndarray): ice fraction at saturation
+
+    Returns:
+        RH (float or ndarray): relative humidity (fraction)
+
+    """
+    e = vapour_pressure_from_wet_bulb_temperature(p, T, Tw, phase=phase,
+                                                  omega=omega)
+    es = saturation_vapour_pressure(T, phase=phase, omega=omega)
+    RH = e / es
+
+    return RH
     
 
 def dewpoint_temperature_from_mixing_ratio(p, T, r):
@@ -529,6 +662,26 @@ def dewpoint_temperature_from_saturation_point_temperature(T, Ts, omega):
     return Td
 
 
+def dewpoint_temperature_from_wet_bulb_temperature(p, T, Tw):
+    """
+    Computes dewpoint temperature from pressure, temperature, and wet-bulb
+    temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+
+    Returns:
+        Td (float or ndarray): dewpoint temperature (K)
+
+    """
+    RH = relative_humidity_from_wet_bulb_temperature(p, T, Tw, phase='liquid')
+    Td = dewpoint_temperature_from_relative_humidity(T, RH)
+
+    return Td
+
+
 def frost_point_temperature_from_mixing_ratio(p, T, r):
     """
     Computes frost-point temperature from pressure, temperature, and mixing
@@ -615,6 +768,26 @@ def frost_point_temperature_from_saturation_point_temperature(T, Ts, omega):
     
     # Compute frost-point temperature
     Tf = frost_point_temperature_from_relative_humidity(T, RHi)
+
+    return Tf
+
+
+def frost_point_temperature_from_wet_bulb_temperature(p, T, Tw):
+    """
+    Computes frost-point temperature from pressure, temperature, and wet-bulb
+    temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+
+    Returns:
+        Tf (float or ndarray): frost-point temperature (K)
+
+    """
+    RH = relative_humidity_from_wet_bulb_temperature(p, T, Tw, phase='ice')
+    Tf = frost_point_temperature_from_relative_humidity(T, RH)
 
     return Tf
 
@@ -854,6 +1027,233 @@ def saturation_point_temperature_from_frost_point_temperature(T, Tf):
                 break
 
     return Ts
+
+
+def saturation_point_temperature_from_wet_bulb_temperature(p, T, Tw):
+    """
+    Computes saturation-point temperature from pressure, temperature, and
+    wet-bulb temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tw (float or ndarray): wet-bulb temperature (K)
+
+    Returns:
+        Ts (float or ndarray): saturation-point temperature (K)
+
+    """
+
+    # Compute ice fraction corresponding to wet-bulb temperature
+    omega_Tw = ice_fraction(Tw)
+
+    # Compute specific humidity from wet-bulb temperature
+    q = specific_humidity_from_wet_bulb_temperature(p, T, Tw, phase='mixed',
+                                                    omega=omega_Tw)
+
+    # Intialise the saturation point temperature as the temperature
+    Ts = T
+
+    # Iterate to convergence
+    converged = False
+    count = 0
+    while not converged:
+
+        # Update the previous Ts value
+        Ts_prev = Ts
+
+        # Compute the ice fraction
+        omega = ice_fraction(Ts)
+
+        # Compute relative humidity from specific humidity
+        RH = relative_humidity_from_specific_humidity(p, T, q, phase='mixed',
+                                                      omega=omega)
+
+        # Compute saturation point temperature
+        Ts = _saturation_point_temperature_from_relative_humidity(T, RH, omega)
+
+        # Check if solution has converged
+        if np.max(np.abs(Ts - Ts_prev)) < precision:
+            converged = True
+        else:
+            count += 1
+            if count == max_n_iter:
+                print(f"Ts not converged after {max_n_iter} iterations")
+                break
+
+    return Ts
+
+
+def wet_bulb_temperature_from_mixing_ratio(p, T, r, phase='liquid',
+                                           isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    mixing ratio.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        r (float or ndarray): mixing ratio (kg/kg)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_mixing_ratio(r)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase=phase, variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
+
+
+def wet_bulb_temperature_from_vapour_pressure(p, T, e, phase='liquid',
+                                              isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    vapour pressure.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        e (float or ndarray): vapour pressure (Pa)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_vapour_pressure(p, e)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase=phase, variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
+
+
+def wet_bulb_temperature_from_relative_humidity(p, T, RH, phase='liquid',
+                                                omega=0.0,
+                                                isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    relative humidity.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        RH (float or ndarray): relative humidity (fraction)
+        phase (str, optional): condensed water phase (valid options are
+            'liquid', 'ice', or 'mixed'; default is 'liquid')
+        omega (float or ndarray): ice fraction at saturation
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_relative_humidity(p, T, RH, phase=phase,
+                                                 omega=omega)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase=phase, variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
+
+
+def wet_bulb_temperature_from_dewpoint_temperature(p, T, Td,
+                                                   isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    dewpoint temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Td (float or ndarray): dewpoint temperature (K)
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_dewpoint_temperature(p, Td)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase='liquid', variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
+
+
+def wet_bulb_temperature_from_frost_point_temperature(p, T, Tf,
+                                                      isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    frost-point temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Tf (float or ndarray): frost-point temperature (K)
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_frost_point_temperature(p, Tf)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase='ice', variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
+
+
+def wet_bulb_temperature_from_saturation_point_temperature(p, T, Ts, omega,
+                                                           isobaric_method='Romps'):
+    """
+    Computes isobaric wet-bulb temperature from pressure, temperature, and
+    saturation-point temperature.
+
+    Args:
+        p (float or ndarray): pressure (Pa)
+        T (float or ndarray): temperature (K)
+        Ts (float or ndarray): saturation-point temperature (K)
+        omega (float or ndarray): ice fraction at saturation
+        isobaric_method (str, optional): method used to calculate isobaric
+            wet-bulb temperature (valid options are 'Warren' or 'Romps';
+            default is 'Romps')
+
+    Returns:
+        Tw (float or ndarray): isobaric wet-bulb temperature (K)
+
+    """
+    q = specific_humidity_from_saturation_point_temperature(p, Ts, omega)
+    Tw = wet_bulb_temperature_from_specific_humidity(
+        p, T, q, phase='mixed', variant='isobaric',
+        isobaric_method=isobaric_method
+    )
+
+    return Tw
 
 
 def convert_relative_humidity(T, RH_in, phase_in, phase_out, omega=0.0):
