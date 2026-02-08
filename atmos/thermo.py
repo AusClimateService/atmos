@@ -955,9 +955,18 @@ def ice_fraction_derivative(Tstar, phase='mixed'):
     return domega_dTstar.squeeze()
 
 
-def ice_fraction_at_saturation(p, T, q, phase='mixed', saturation='isobaric'):
+def ice_fraction_at_saturation(p, T, q, phase='mixed', process='cooling',
+                               isobaric_method='Romps', pseudo_method='NEWT'):
     """
-    Computes ice fraction at saturation for specified saturation process.
+    Computes ice fraction at saturation for one of four saturation processes:
+        1. diabatic cooling at constant pressure ('cooling')
+        2. diabatic cooling and moistening at constant pressure via evaporation
+           and/or sublimation ('moistening')
+        3. adiabatic ascent ('adiabatic')
+        4. adiabatic ascent followed by pseudoadiabatic descent to the
+           original pressure ('pseudoadiabatic')
+    Note that for processes 1 and 3, the parcel undergoes cooling only, whereas
+    for processes 2 and 4 the parcel undergoes cooling and moistening.
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -965,8 +974,9 @@ def ice_fraction_at_saturation(p, T, q, phase='mixed', saturation='isobaric'):
         q (float or ndarray): specific humidity (kg/kg)
         phase (str, optional): condensed water phase (valid options are
             'liquid', 'ice', or 'mixed'; default is 'mixed')
-        saturation (str, optional): saturation process (valid options are
-            'isobaric' or 'adiabatic'; default is 'isobaric')
+        process (str, optional): saturation process (valid options are
+            'cooling', 'moistening', 'adiabatic', or 'pseudoadiabatic';
+            default is 'cooling')
 
     Returns:
         omega (float or ndarray): ice fraction at saturation
@@ -975,19 +985,31 @@ def ice_fraction_at_saturation(p, T, q, phase='mixed', saturation='isobaric'):
 
     if phase == 'mixed':
 
-        if saturation == 'isobaric':
+        if process == 'cooling':
 
             # Compute saturation-point temperature
             Tstar = saturation_point_temperature(p, T, q)
 
-        elif saturation == 'adiabatic':
+        elif process == 'moistening':
+
+            # Compute mixed-phase wet-bulb temperature
+            Tstar = isobaric_wet_bulb_temperature(p, T, q, phase='mixed')
+
+        elif process == 'adiabatic':
 
             # Compute lifting saturation level (LSL) temperature
             _, Tstar = lifting_saturation_level(p, T, q)
 
+        elif process == 'pseudoadiabatic':
+
+            # Compute mixed-phase pseudo wet-bulb temperature
+            Tstar = pseudo_wet_bulb_temperature(p, T, q, phase='mixed')
+
         else:
 
-            raise ValueError("saturation must be 'isobaric' or 'adiabatic'")
+            raise ValueError("""
+                process must be one of 'cooling', 'moistening', 'adiabatic', or 'pseudoadiabatic'
+            """)
 
     else:
 
