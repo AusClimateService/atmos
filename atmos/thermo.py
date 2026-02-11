@@ -670,7 +670,7 @@ def _saturation_point_temperature_from_relative_humidity(T, RH, omega):
     # (Eq. 31 from Warren 2025)
     Lx0 = (1 - omega) * Lv0 + omega * Ls0
 
-    # Compute saturation-point temperature
+    # Compute saturation-point temperature using Lambert-W function
     # (Eq. 42-43 from Warren 2025)
     beta = (cpx - cpv) / Rv
     alpha = -(1 / beta) * (Lx0 + (cpx - cpv) * T0) / Rv
@@ -795,7 +795,7 @@ def lifting_deposition_level(p, T, q):
     # Compute relative humidity with respect to ice
     RH = relative_humidity(p, T, q, phase='ice')
 
-    # Compute temperature at the LDL using Labert W function
+    # Compute temperature at the LDL using Lambert W function
     # (Eq. 48 and 50-51 from Warren 2025; cf. Eq. 23a,d-f from Romps 2017)
     beta = cpm / Rm + (cpi - cpv) / Rv
     alpha = -(1 / beta) * (Ls0 + (cpi - cpv) * T0) / Rv
@@ -860,7 +860,7 @@ def lifting_saturation_level(p, T, q):
         # (Eq. 31 from Warren 2025)
         Lx0 = (1 - omega) * Lv0 + omega * Ls0
 
-        # Compute temperature at the LSL
+        # Compute temperature at the LSL using Lambert-W function
         # (Eq. 52 and 54-55 from Warren 2025)
         beta = cpm / Rm + (cpx - cpv) / Rv
         alpha = -(1 / beta) * (Lx0 + (cpx - cpv) * T0) / Rv
