@@ -920,7 +920,10 @@ def ice_fraction(Tstar, phase='mixed'):
     else:
         raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
 
-    return omega.squeeze()
+    if omega.size == 1:
+        omega = omega.item()
+
+    return omega
 
 
 def ice_fraction_derivative(Tstar, phase='mixed'):
@@ -952,7 +955,10 @@ def ice_fraction_derivative(Tstar, phase='mixed'):
     else:
         raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
 
-    return domega_dTstar.squeeze()
+    if domega_dTstar.size == 1:
+        domega_dTstar = domega_dTstar.item()
+
+    return domega_dTstar
 
 
 def ice_fraction_at_saturation(p, T, q, phase='mixed', process='cooling',
@@ -1464,8 +1470,8 @@ def pseudo_wet_bulb_temperature(p, T, q, phase='liquid', method='NEWT'):
     # introduced by polynomial fits or numerical integration)
     Tw = np.minimum(Tw, T)
 
-    if not np.isscalar(Tw):
-        Tw = Tw.squeeze()
+    if not np.isscalar(Tw) and Tw.size == 1:
+        Tw = Tw.item()
 
     return Tw
 
@@ -2083,8 +2089,8 @@ def wet_bulb_potential_temperature(p, T, q, phase='liquid', polynomial=True,
 
         raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
 
-    if not np.isscalar(thw):
-        thw = thw.squeeze()
+    if not np.isscalar(thw) and thw.size == 1:
+        thw = thw.item()
 
     return thw
 
@@ -2250,7 +2256,10 @@ def precipitable_water(p, q, p_sfc=None, q_sfc=None, p_bot=None, p_top=None,
         PW[in_layer] += (1 / g) * 0.5 * (q1[in_layer] + q2[in_layer]) * \
             (p1[in_layer] - p2[in_layer])
 
-    return PW.squeeze()
+    if PW.size == 1:
+        PW = PW.item()
+
+    return PW
 
 
 def saturation_fraction(p, T, q, p_sfc=None, T_sfc=None, q_sfc=None,
@@ -2464,7 +2473,11 @@ def integrated_vapour_transport(p, q, u, v, p_sfc=None, q_sfc=None, u_sfc=None,
             q1[in_layer] * v1[in_layer] + q2[in_layer] * v2[in_layer]
             ) * (p1[in_layer] - p2[in_layer])
 
-    return IVTu.squeeze(), IVTv.squeeze()
+    if IVTu.size == 1:
+        IVTu = IVTu.item()
+        IVTv = IVTv.item()
+
+    return IVTu, IVTv
 
 
 def geopotential_height(p, T, q, p_sfc=None, T_sfc=None, q_sfc=None,
@@ -2557,7 +2570,10 @@ def geopotential_height(p, T, q, p_sfc=None, T_sfc=None, q_sfc=None,
             # Save geopotential height for this level
             Z[k][above_sfc] = Z2[above_sfc]
 
-    return Z.squeeze()  # remove dimensions of length 1
+    if Z.size == 1:
+        Z = Z.item()
+
+    return Z
 
 
 def hydrostatic_pressure(z, T, q, p_sfc, z_sfc=None, T_sfc=None, q_sfc=None,
@@ -2652,4 +2668,7 @@ def hydrostatic_pressure(z, T, q, p_sfc, z_sfc=None, T_sfc=None, q_sfc=None,
             # Save hydrostatic pressure for this level
             P[k][above_sfc] = P[above_sfc]
 
-    return P.squeeze()  # remove dimensions of length 1
+    if P.size == 1:
+        P = P.item()
+
+    return P
