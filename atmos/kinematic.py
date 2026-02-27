@@ -232,7 +232,8 @@ def bunkers_storm_motion(z, u, v, z_sfc=None, u_sfc=None, v_sfc=None,
                          shear_layer_base=0.0, shear_layer_top=6000.0,
                          shear_layer_base_average=500.0,
                          shear_layer_top_average=500.0,
-                         deviation_left=7.5, deviation_right=7.5):
+                         deviation_left=7.5, deviation_right=7.5,
+                         return_advective=False, return_shear=False):
     """
     Computes Bunkers left and right storm motion vectors.
 
@@ -268,6 +269,10 @@ def bunkers_storm_motion(z, u, v, z_sfc=None, u_sfc=None, v_sfc=None,
             mover (m/s) (default is 7.5)
         deviation_right (float, optional): magnitude of deviation for right
             mover (m/s) (default is 7.5)
+        return_advective (bool, optional): flag indicating whether to return
+            advective components of storm motion (default is false)
+        return_shear (bool, optional): flag indicating whether to return shear
+            vector components (default is false)
 
     Returns:
         u_bl (float or ndarray): eastward component of Bunkers left storm
@@ -341,7 +346,16 @@ def bunkers_storm_motion(z, u, v, z_sfc=None, u_sfc=None, v_sfc=None,
         u_br[shr_eq_zero] = u_adv[shr_eq_zero]
         v_br[shr_eq_zero] = v_adv[shr_eq_zero]
 
-    return u_bl, v_bl, u_br, v_br
+    if return_shear:
+        if return_advective:
+            return u_bl, v_bl, u_br, v_br, u_adv, v_adv, u_shr, v_shr
+        else:
+            return u_bl, v_bl, u_br, v_br, u_shr, v_shr
+    else:
+        if return_advective:
+            return u_bl, v_bl, u_br, v_br, u_adv, v_adv
+        else:
+            return u_bl, v_bl, u_br, v_br
 
 
 def storm_relative_helicity(z, u, v, u_storm, v_storm, z_bot, z_top,
