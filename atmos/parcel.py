@@ -12,8 +12,6 @@ from atmos.thermo import (
     virtual_temperature,
     potential_temperature,
     lifting_condensation_level,
-    lifting_deposition_level,
-    lifting_saturation_level,
     ice_fraction,
     follow_dry_adiabat,
     follow_moist_adiabat,
@@ -194,16 +192,8 @@ def parcel_ascent(p, T, q, p_lpl, Tp_lpl, qp_lpl, k_lpl=None, p_sfc=None,
     # Note the number of levels
     n_lev = p.shape[0]
 
-    # Compute the LCL/LDL/LSL pressure and parcel temperature (hereafter, we
-    # refer to all of these as the LCL for simplicity)
-    if phase == 'liquid':
-        p_lcl, Tp_lcl = lifting_condensation_level(p_lpl, Tp_lpl, qp_lpl)
-    elif phase == 'ice':
-        p_lcl, Tp_lcl = lifting_deposition_level(p_lpl, Tp_lpl, qp_lpl)
-    elif phase == 'mixed':
-        p_lcl, Tp_lcl = lifting_saturation_level(p_lpl, Tp_lpl, qp_lpl)
-    else:
-        raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
+    # Compute the LCL pressure and parcel temperature
+    p_lcl, Tp_lcl = lifting_condensation_level(p_lpl, Tp_lpl, qp_lpl, phase=phase)
 
     # Ensure that type of LCL variables matches that of input fields
     p_lcl = p_lcl.astype(p_lpl.dtype)
@@ -1594,7 +1584,7 @@ def downdraft_parcel(p, T, q, p_sfc=None, T_sfc=None, q_sfc=None,
 
 def lifted_index(pi, pf, Ti, Tf, qi, qf=None, phase='liquid',
                  polynomial=True, explicit=False, dp=500.0,
-                 use_virtual_temperature=False):
+                 virtual=False):
     """
     Calculates the lifted index (LI), defined as the difference between the
     environmental temperature at a specified pressure level and the
@@ -1618,8 +1608,8 @@ def lifted_index(pi, pf, Ti, Tf, qi, qf=None, phase='liquid',
             integration of lapse rate equation (default is False)
         dp (float, optional): pressure increment for integration of lapse rate
             equation (default is 500 Pa = 5 hPa)
-        use_virtual_temperature (bool, optional): use virtual temperature,
-            instead of temperature, to compute LI (default is False)
+        virtual (bool, optional): flag indicating whether to use virtual
+            temperature, instead of temperature, to compute LI (default is False)
 
     Returns:
         LI (float or ndarray): lifted index (K)
@@ -1665,16 +1655,8 @@ def lifted_index(pi, pf, Ti, Tf, qi, qf=None, phase='liquid',
     if np.any(pi < pf):
         raise ValueError('Final pressure must be less than initial pressure')
 
-    # Compute the LCL/LDL/LSL pressure and parcel temperature (hereafter, we
-    # refer to all of these as the LCL for simplicity)
-    if phase == 'liquid':
-        p_lcl, Tp_lcl = lifting_condensation_level(pi, Ti, qi)
-    elif phase == 'ice':
-        p_lcl, Tp_lcl = lifting_deposition_level(pi, Ti, qi)
-    elif phase == 'mixed':
-        p_lcl, Tp_lcl = lifting_saturation_level(pi, Ti, qi)
-    else:
-        raise ValueError("phase must be one of 'liquid', 'ice', or 'mixed'")
+    # Compute the LCL pressure and parcel temperature
+    p_lcl, Tp_lcl = lifting_condensation_level(pi, Ti, qi, phase=phase)
 
     # Create arrays to store the final parcel temperature and specific
     # humidity
@@ -1712,7 +1694,7 @@ def lifted_index(pi, pf, Ti, Tf, qi, qf=None, phase='liquid',
         qpf[below_lcl] = qi[below_lcl]
 
     # Computed the lifted index
-    if use_virtual_temperature:
+    if virtual:
         if qf is None:
             raise ValueError('''Final specific humidity must be specified if
                              using virtual temperature''')
