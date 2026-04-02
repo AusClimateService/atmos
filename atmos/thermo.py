@@ -52,8 +52,8 @@ References:
     Atmospheric Sciences, 78, 2113-2116,
     https://doi.org/10.1175/JAS-D-20-0301.1.
 * Romps, D. M., 2026: Wet-bulb temperature from pressure, relative humidity,
-    and air temperature. Journal of Applied Meteorology and Climatology,
-    https://doi.org/10.1175/JAMC-D-25-0130.1.
+    and air temperature. Journal of Applied Meteorology and Climatology, 2,
+    285-298, https://doi.org/10.1175/JAMC-D-25-0130.1.
 * Vazquez-Leal, H., Sandoval-Hernandez, M.A., Garcia-Gervacio, J.L.,
     Herrera-May, A.L., and Filobello-Nino, U.A., 2019. PSEM approximations
     for both branches of Lambert W function with applications. Discrete
@@ -838,7 +838,7 @@ def ice_fraction_derivative(Tstar, phase='mixed'):
 
 def ice_fraction_at_saturation(
     p, T, q, phase='mixed', process='cooling',
-    isobaric_method='Romps', pseudo_method='NEWT'
+    isobaric_method='EC', pseudo_method='NEWT'
     ):
     """
     Computes ice fraction at saturation for one of four saturation processes:
@@ -849,7 +849,12 @@ def ice_fraction_at_saturation(
         4. adiabatic ascent followed by pseudoadiabatic descent to the
            original pressure ('pseudoadiabatic')
     Note that for processes 1 and 3, the parcel undergoes cooling only, whereas
-    for processes 2 and 4 the parcel undergoes cooling and moistening.
+    for processes 2 and 4 the parcel undergoes cooling and moistening. These
+    four processes correspond to the following temperatures:
+        1. dewpoint temperature
+        2. isobaric wet-bulb temperature
+        3. lifting condensation level temperature
+        4. pseudo wet-bulb temperature
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -860,6 +865,11 @@ def ice_fraction_at_saturation(
         process (str, optional): saturation process (valid options are
             'cooling', 'moistening', 'adiabatic', or 'pseudoadiabatic';
             default is 'cooling')
+        isobaric_method (str, optional): method used to calculate isobaric wet-
+            bulb temperature (valid options are 'IC' or 'EC'; default is 'EC')
+        pseudo_method (str, optional): method used to calculate pseudo wet-bulb
+            temperature (valid options are 'iterative' or 'NEWT'; default is
+            'NEWT')
 
     Returns:
         omega (float or ndarray): ice fraction at saturation
@@ -1291,7 +1301,10 @@ def pseudo_wet_bulb_temperature(
     ):
     """
     Computes pseudo (a.k.a. adiabatic) wet-bulb temperature using method
-    outlined in section 7 of Warren (2025).
+    outlined in section 7 of Warren (2025). If phase='ice', the pseudo ice-bulb
+    temperature is calculated. If phase='mixed', the mixed-phase pseudo ice-
+    bulb temperature is calculated. For simplicity, the symbol Tw is used for
+    all three variables.
 
     Pseudo wet-bulb temperature is the temperature of a parcel of air lifted
     adiabatically to saturation and then brought pseudoadiabatically at
@@ -1338,16 +1351,22 @@ def pseudo_wet_bulb_temperature(
 
 
 def isobaric_wet_bulb_temperature(
-    p, T, q, phase='liquid', method='Romps', limit=True
+    p, T, q, phase='liquid', method='EC', limit=True
     ):
     """
-    Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using
-    equations from Warren (2025) or Romps (2026).
+    Computes isobaric (a.k.a. thermodynamic) wet-bulb temperature using either
+    the "internal condensate" (IC) method from Warren (2025) or the "external
+    condensate" (EC) method from Romps (2026). If phase='ice', the isobaric
+    ice-bulb temperature is calculated. If phase='mixed', the mixed-phase
+    isobaric wet-bulb temperature is calculated. For simplicit, the symbol Tw
+    is used for all three variables.
 
     Isobaric wet-bulb temperature is the temperature of a parcel of air cooled
     isobarically to saturation via the evaporation of water into it, with all
-    latent heat supplied by the parcel. It is similar (but not identical) to
-    the quantity measured by a wet-bulb thermometer.
+    latent heat supplied by the parcel. With the IC method, the water is
+    assumed to be internal to the parcel, with initial temperature T.
+    Conversely, with the EC method, the water is assumed to be external to the
+    parcel, with initial temperature Tw.
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -1356,7 +1375,7 @@ def isobaric_wet_bulb_temperature(
         phase (str, optional): condensed water phase (valid options are
             'liquid', 'ice', or 'mixed'; default is 'liquid')
         method (str, optional): method used to perform calculation (valid
-            options are 'Warren' or 'Romps'; default is 'Romps')
+            options are 'IC' or 'EC'; default is 'EC')
         limit (bool, optional): flag indicating whether to limit the wet-bulb
             temperature to ensure that it does not exceed the temperature
             (default is True)
@@ -1372,7 +1391,7 @@ def isobaric_wet_bulb_temperature(
     # Initialise Tw using the "one-third rule" (Knox et al. 2017)
     Tw = T - (1 / 3) * (T - Td)
 
-    if method == 'Warren':
+    if method == 'IC':
 
         # Compute the latent heat at temperature T
         if phase == 'liquid':
@@ -1481,7 +1500,7 @@ def isobaric_wet_bulb_temperature(
                     print(f"Tw not converged after {max_n_iter} iterations")
                     break
 
-    elif method == 'Romps':
+    elif method == 'EC':
 
         # Compute the effective specific heat
         cpm = effective_specific_heat(q)
@@ -1585,7 +1604,7 @@ def isobaric_wet_bulb_temperature(
     else:
 
         raise ValueError(
-            "isobaric_method must be either 'Warren' or 'Romps'"
+            "isobaric_method must be either 'IC' or 'EC'"
            )
 
     if limit:
@@ -1596,10 +1615,13 @@ def isobaric_wet_bulb_temperature(
 
 def wet_bulb_temperature(
     p, T, q, phase='liquid', variant='isobaric',
-    isobaric_method='Romps', pseudo_method='NEWT', limit=True
+    isobaric_method='EC', pseudo_method='NEWT', limit=True
     ):
     """
-    Computes wet-bulb temperature (isobaric or pseudo).
+    Computes wet-bulb temperature (isobaric or pseudo). If phase='ice', the
+    ice-bulb temperature is calculated. If phase='mixed', the mixed-phase
+    wet-bulb temperature is calculated. For simplicity, the symbol Tw is used
+    for all variants of wet-bulb temperature.
 
     Args:
         p (float or ndarray): pressure (Pa)
@@ -1609,12 +1631,11 @@ def wet_bulb_temperature(
             'liquid', 'ice', or 'mixed'; default is 'liquid')
         variant (str, optional): variant of wet-bulb temperature to calculate
             (valid options are 'isobaric' or 'pseudo'; default is 'isobaric')
-        isobaric_method (str, optional): method used to calculate isobaric
-            wet-bulb temperature (valid options are 'Warren' or 'Romps';
-            default is 'Romps')
-        pseudo_method (str, optional): method used to calculate pseudo
-            wet-bulb temperature (valid options are 'iterative' or 'NEWT';
-            default is 'NEWT')
+        isobaric_method (str, optional): method used to calculate isobaric wet-
+            bulb temperature (valid options are 'IC' or 'EC'; default is 'EC')
+        pseudo_method (str, optional): method used to calculate pseudo wet-bulb
+            temperature (valid options are 'iterative' or 'NEWT'; default is
+            'NEWT')
         limit (bool, optional): flag indicating whether to limit the wet-bulb
             temperature to ensure that it does not exceed the temperature
             (default is True)
